@@ -1,0 +1,123 @@
+@page "/salas"
+@inherits Tf09Page
+
+<PageTitle>Salas · TF09</PageTitle>
+<h1>Salas</h1>
+<p class="lead">Cada sala contiene su propia distribución de filas y asientos.</p>
+<Mensajes Error="@Error" Confirmacion="@Confirmacion" Ocupado="@Ocupado" />
+
+@if (!Admin)
+{
+    <p class="notice">El Gestor consulta las salas. El Administrador mantiene el catálogo.</p>
+}
+else
+{
+    <section class="card">
+        <h2>@(editando is null ? "Nueva sala" : "Editar sala")</h2>
+        <form @onsubmit="Guardar" @onsubmit:preventDefault>
+            <div class="fields">
+                <label>Nombre de la sala <input required maxlength="80" @bind="nombre" /></label>
+                <label>Filas
+                    <input type="number" required min="1" max="12" step="1" disabled="@(editando is not null)" @bind="filas" />
+                </label>
+                <label>Asientos por fila
+                    <input type="number" required min="1" max="20" step="1" disabled="@(editando is not null)" @bind="asientosPorFila" />
+                </label>
+            </div>
+            <p class="lead">El plano se genera al crear la sala. Después se puede editar el nombre.</p>
+            <div class="actions">
+                <button disabled="@Ocupado">Guardar sala</button>
+                @if (editando is not null)
+                {
+                    <button type="button" class="secondary" disabled="@Ocupado" @onclick="Limpiar">Cancelar edición</button>
+                }
+            </div>
+        </form>
+    </section>
+}
+
+<section class="card scroll">
+    <h2>Salas registradas</h2>
+    @if (salas.Length == 0)
+    {
+        <p>Sin salas registradas.</p>
+    }
+    else
+    {
+        <table>
+            <thead><tr>
+                <th scope="col">Sala</th><th scope="col">Filas</th><th scope="col">Asientos por fila</th><th scope="col">Capacidad</th>
+                @if (Admin) { <th scope="col">Acciones</th> }
+            </tr></thead>
+            <tbody>
+                @foreach (var sala in salas)
+                {
+                    <tr @key="sala.Id">
+                        <th scope="row">@sala.Nombre</th><td>@sala.Filas</td><td>@sala.AsientosPorFila</td>
+                        <td>@(sala.Filas * sala.AsientosPorFila)</td>
+                        @if (Admin)
+                        {
+                            <td><div class="actions">
+                                <button type="button" class="secondary" disabled="@Ocupado" @onclick="() => Editar(sala)">Editar sala</button>
+                                <button type="button" class="danger" disabled="@Ocupado" @onclick="() => porEliminar = sala">Eliminar sala</button>
+                            </div></td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+    @if (porEliminar is { } eliminar)
+    {
+        <p>¿Eliminar la sala <strong>@eliminar.Nombre</strong> y su plano?</p>
+        <div class="actions">
+            <button type="button" class="danger" disabled="@Ocupado" @onclick="() => Eliminar(eliminar.Id)">Confirmar eliminación</button>
+            <button type="button" class="secondary" disabled="@Ocupado" @onclick="() => porEliminar = null">Volver</button>
+        </div>
+    }
+</section>
+
+@code {
+    private Sala[] salas = [];
+    private Sala? porEliminar;
+    private int? editando;
+    private int filas = 3, asientosPorFila = 6;
+    private string nombre = "";
+
+    protected override Task OnInitializedAsync() => EjecutarAsync(Cargar);
+    private async Task Cargar() => salas = await Servicio.SalasAsync();
+
+    private void Editar(Sala sala)
+    {
+        editando = sala.Id;
+        nombre = sala.Nombre;
+        filas = sala.Filas;
+        asientosPorFila = sala.AsientosPorFila;
+    }
+
+    private void Limpiar()
+    {
+        editando = null;
+        nombre = "";
+        filas = 3;
+        asientosPorFila = 6;
+    }
+
+    private Task Guardar() => EjecutarAsync(async () =>
+    {
+        await Servicio.GuardarSalaAsync(editando, new SalaInput(nombre, filas, asientosPorFila));
+        Limpiar();
+        Confirmar("Sala guardada.");
+        await Cargar();
+    });
+
+    private Task Eliminar(int id) => EjecutarAsync(async () =>
+    {
+        await Servicio.EliminarSalaAsync(id);
+        porEliminar = null;
+        if (editando == id)
+            Limpiar();
+        Confirmar("Sala eliminada.");
+        await Cargar();
+    });
+}

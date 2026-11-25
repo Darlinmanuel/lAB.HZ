@@ -1,0 +1,36 @@
+@page "/"
+@inherits Tf09Page
+
+<PageTitle>Inicio · TF09</PageTitle>
+<p class="eyebrow">Panel principal</p>
+<h1>Cine y Reservación de Asientos</h1>
+<p class="lead">Consulte la cartelera, programe funciones y gestione sus reservas por asiento.</p>
+<Mensajes Error="@Error" Ocupado="@Ocupado" />
+
+@if (resumen is { } r)
+{
+    <section class="stats" aria-label="Indicadores del tablero">
+        <section class="card"><strong>@r.Peliculas</strong> Películas registradas</section>
+        <section class="card"><strong>@r.Salas</strong> Salas</section>
+        <section class="card"><strong>@r.FuncionesProximas</strong> Funciones próximas</section>
+        <section class="card"><strong>@r.ReservasActivas</strong> Reservas activas</section>
+        <section class="card"><strong>@r.ReservasCanceladas</strong> Reservas canceladas</section>
+    </section>
+}
+
+<section class="dashboard-links" aria-labelledby="modulos">
+    <h2 id="modulos">Módulos</h2>
+    <div class="module-grid">
+        <a class="card" href="cartelera"><strong>Cartelera</strong><span>Consulte las películas y sus duraciones.</span></a>
+        <a class="card" href="salas"><strong>Salas</strong><span>Revise la capacidad y distribución de cada sala.</span></a>
+        <a class="card" href="funciones"><strong>Funciones</strong><span>Programe películas por sala y horario.</span></a>
+        <a class="card" href="reservas"><strong>Reservas</strong><span>Seleccione un asiento y consulte el historial.</span></a>
+    </div>
+</section>
+
+@code {
+    private Resumen? resumen;
+
+    protected override Task OnInitializedAsync() =>
+        EjecutarAsync(async () => resumen = await Servicio.ResumenAsync());
+}

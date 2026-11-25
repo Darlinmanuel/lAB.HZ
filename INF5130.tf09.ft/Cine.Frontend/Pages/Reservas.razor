@@ -1,0 +1,233 @@
+@page "/reservas"
+@inherits Tf09Page
+
+<PageTitle>Reservas · TF09</PageTitle>
+<h1>Reservas</h1>
+<p class="lead">Elija una función y seleccione un asiento. Consulte las reservas activas y canceladas en el historial.</p>
+<Mensajes Error="@Error" Confirmacion="@Confirmacion" Ocupado="@Ocupado" />
+
+<section class="card" aria-labelledby="titulo-mapa">
+    <h2 id="titulo-mapa">Plano de asientos</h2>
+    <div class="fields">
+        <label>Función
+            <select @bind="funcionId" @bind:after="CambiarFuncion" disabled="@Ocupado">
+                <option value="">Seleccione</option>
+                @foreach (var funcion in funciones)
+                {
+                    <option value="@funcion.Id">@funcion.PeliculaTitulo · @funcion.SalaNombre · @CineFormato.Fecha(funcion.InicioUtc)</option>
+                }
+            </select>
+        </label>
+    </div>
+
+    @if (mapa is { } actual && FuncionSeleccionada is { } f)
+    {
+        var abierta = actual.ReservaAbierta && f.InicioUtc > DateTimeOffset.UtcNow;
+        <p class="lead">@f.SalaNombre · @CineFormato.Fecha(f.InicioUtc) (hora de Santo Domingo)</p>
+        <div class="seat-legend" aria-label="Leyenda del plano">
+            <span><i class="seat-key" aria-hidden="true"></i> Libre</span>
+            <span><i class="seat-key seat-occupied" aria-hidden="true"></i> Ocupado</span>
+            <span><i class="seat-key seat-selected" aria-hidden="true"></i> Seleccionado</span>
+        </div>
+        @if (actual.Asientos.Length == 0)
+        {
+            <p>Sin asientos registrados en esta sala.</p>
+        }
+        else
+        {
+            <div class="seat-scroll scroll" tabindex="0" aria-label="Plano desplazable">
+                <div class="seat-map" style="@($"--columnas:{actual.Asientos.Max(a => a.Numero)}")">
+                    <div class="seat-screen">Pantalla</div>
+                    @foreach (var fila in actual.Asientos.GroupBy(a => a.Fila))
+                    {
+                        <div class="seat-row">
+                            <span class="seat-row-label" aria-hidden="true">@CineFormato.Fila(fila.Key)</span>
+                            @foreach (var a in fila)
+                            {
+                                var codigo = CineFormato.Asiento(a.Fila, a.Numero);
+                                var seleccionado = asientoId == a.Id;
+                                <button @key="a.Id" type="button"
+                                        class="seat @(a.Ocupado ? "seat-occupied" : seleccionado ? "seat-selected" : "")"
+                                        aria-label="@($"Asiento {codigo}, {(a.Ocupado ? "ocupado" : "libre")}")"
+                                        aria-pressed="@(seleccionado ? "true" : "false")"
+                                        disabled="@(!abierta || !Gestion || a.Ocupado || Ocupado)"
+                                        @onclick="() => asientoId = seleccionado ? null : a.Id">@codigo</button>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+
+        <div class="actions">
+            <button type="button" class="secondary" disabled="@Ocupado" @onclick="CambiarFuncion">Actualizar plano</button>
+        </div>
+        @if (!abierta)
+        {
+            <p class="notice">El período de reserva terminó al iniciar la función.</p>
+        }
+        else if (Gestion)
+        {
+            <form class="seat-form" @onsubmit="Reservar" @onsubmit:preventDefault>
+                <p class="notice" role="status">Asiento seleccionado <strong>@CodigoSeleccionado</strong></p>
+                <label>Titular de la reserva <input required maxlength="120" @bind="titular" /></label>
+                <div class="actions"><button disabled="@(Ocupado || asientoId is null)">Reservar asiento</button></div>
+            </form>
+        }
+    }
+    else if (funciones.Length == 0)
+    {
+        <p>Programe una función para consultar su plano.</p>
+    }
+</section>
+
+@if (porCancelar is { } pendiente)
+{
+    <section class="card" aria-labelledby="titulo-cancelacion">
+        <h2 id="titulo-cancelacion" tabindex="-1" @ref="tituloCancelacion">Cancelar reserva #@pendiente.Id</h2>
+        <p>El asiento <strong>@pendiente.CodigoAsiento</strong> volverá a estar libre para esa función.</p>
+        <div class="actions">
+            <button type="button" class="danger" disabled="@Ocupado" @onclick="() => Cancelar(pendiente.Id)">Confirmar cancelación</button>
+            <button type="button" class="secondary" disabled="@Ocupado" @onclick="() => porCancelar = null">Volver</button>
+        </div>
+    </section>
+}
+
+<section class="card scroll" aria-labelledby="historial">
+    <h2 id="historial">Historial de reservas</h2>
+    <label>Filtrar por estado
+        <select @bind="filtro">
+            <option value="">Todas</option>
+            <option value="Activa">Activa</option>
+            <option value="Cancelada">Cancelada</option>
+        </select>
+    </label>
+    @if (Visibles.Length == 0)
+    {
+        <p>Sin reservas para mostrar.</p>
+    }
+    else
+    {
+        <table class="seat-history">
+            <thead><tr>
+                <th scope="col">Reserva</th><th scope="col">Función</th><th scope="col">Asiento</th>
+                <th scope="col">Titular</th><th scope="col">Estado</th><th scope="col">Acción</th>
+            </tr></thead>
+            <tbody>
+                @foreach (var r in Visibles)
+                {
+                    var funcion = funciones.FirstOrDefault(f => f.Id == r.FuncionId);
+                    <tr @key="r.Id">
+                        <th scope="row">#@r.Id</th>
+                        <td>@funcion?.PeliculaTitulo
+                            @if (funcion is not null)
+                            {
+                                <br /><span>@funcion.SalaNombre · @CineFormato.Fecha(funcion.InicioUtc)</span>
+                            }
+                        </td>
+                        <td>@r.CodigoAsiento</td><td>@r.Titular</td>
+                        <td>
+                            <span class="tag @(r.Estado == "Activa" ? "seat-active-tag" : "")">@r.Estado</span>
+                            @if (r.CanceladaUtc is { } fecha) { <div>@CineFormato.Fecha(fecha)</div> }
+                        </td>
+                        <td>
+                            @if (Gestion && r.Estado == "Activa" && funcion?.InicioUtc > DateTimeOffset.UtcNow)
+                            {
+                                <button type="button" class="danger" disabled="@Ocupado" @onclick="() => PrepararCancelacion(r)">Cancelar reserva</button>
+                            }
+                            else
+                            {
+                                <span>—</span>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</section>
+
+@code {
+    [SupplyParameterFromQuery(Name = "funcionId")]
+    public int? FuncionInicial { get; set; }
+
+    private Funcion[] funciones = [];
+    private Reserva[] reservas = [];
+    private MapaAsientos? mapa;
+    private Reserva? porCancelar;
+    private int? funcionId, asientoId;
+    private string titular = "", filtro = "";
+    private ElementReference tituloCancelacion;
+    private bool enfocarCancelacion;
+
+    private Funcion? FuncionSeleccionada => funciones.FirstOrDefault(f => f.Id == funcionId);
+    private Reserva[] Visibles => string.IsNullOrEmpty(filtro)
+        ? reservas : reservas.Where(r => r.Estado == filtro).ToArray();
+
+    private string CodigoSeleccionado => mapa?.Asientos.FirstOrDefault(a => a.Id == asientoId) is { } asiento
+        ? CineFormato.Asiento(asiento.Fila, asiento.Numero) : "Ninguno";
+
+    protected override Task OnInitializedAsync() => EjecutarAsync(async () =>
+    {
+        funciones = await Servicio.FuncionesAsync();
+        reservas = await Servicio.ReservasAsync();
+        funcionId = funciones.FirstOrDefault(f => f.Id == FuncionInicial)?.Id ??
+            funciones.FirstOrDefault(f => f.InicioUtc > DateTimeOffset.UtcNow)?.Id;
+        await CargarPlano();
+    });
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!enfocarCancelacion)
+            return;
+        enfocarCancelacion = false;
+        await tituloCancelacion.FocusAsync();
+    }
+
+    private Task CambiarFuncion() => EjecutarAsync(CargarPlano);
+
+    private async Task CargarPlano()
+    {
+        asientoId = null;
+        mapa = null;
+        if (funcionId is int id)
+            mapa = await Servicio.MapaAsync(id);
+    }
+
+    private Task Reservar() => EjecutarAsync(async () =>
+    {
+        if (funcionId is not int funcion || asientoId is not int asiento)
+            throw new InvalidOperationException("Seleccione la función y el asiento.");
+        var reserva = await Servicio.ReservarAsync(new ReservaInput(funcion, asiento, titular));
+        Actualizar(reserva);
+        asientoId = null;
+        titular = filtro = "";
+        Confirmar("Asiento reservado.");
+    });
+
+    private Task Cancelar(int id) => EjecutarAsync(async () =>
+    {
+        Actualizar(await Servicio.CancelarAsync(id));
+        porCancelar = null;
+        Confirmar("Reserva cancelada. El asiento vuelve a estar libre.");
+    });
+
+    private void PrepararCancelacion(Reserva reserva)
+    {
+        porCancelar = reserva;
+        enfocarCancelacion = true;
+    }
+
+    private void Actualizar(Reserva reserva)
+    {
+        reservas = reservas.Where(r => r.Id != reserva.Id).Append(reserva).OrderByDescending(r => r.Id).ToArray();
+        if (mapa is { } actual && actual.FuncionId == reserva.FuncionId)
+        {
+            mapa = actual with
+            {
+                Asientos = actual.Asientos.Select(a => a.Id == reserva.AsientoId
+                    ? a with { Ocupado = reserva.Estado == "Activa" } : a).ToArray()
+            };
+        }
+    }
+}

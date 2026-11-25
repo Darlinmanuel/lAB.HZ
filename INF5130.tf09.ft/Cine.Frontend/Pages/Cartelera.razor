@@ -1,0 +1,116 @@
+@page "/cartelera"
+@inherits Tf09Page
+
+<PageTitle>Cartelera · TF09</PageTitle>
+<h1>Cartelera</h1>
+<p class="lead">Consulte las películas y sus duraciones. Abra Funciones para consultar la programación.</p>
+<Mensajes Error="@Error" Confirmacion="@Confirmacion" Ocupado="@Ocupado" />
+
+@if (!Admin)
+{
+    <p class="notice">El Gestor consulta la cartelera. El Administrador mantiene el catálogo de películas.</p>
+}
+else
+{
+    <section class="card">
+        <h2>@(editando is null ? "Nueva película" : "Editar película")</h2>
+        <form @onsubmit="Guardar" @onsubmit:preventDefault>
+            <div class="fields">
+                <label>Título <input required maxlength="150" @bind="titulo" /></label>
+                <label>Duración en minutos <input type="number" required min="20" max="300" step="1" @bind="duracion" /></label>
+            </div>
+            <div class="actions">
+                <button disabled="@Ocupado">Guardar película</button>
+                @if (editando is not null)
+                {
+                    <button type="button" class="secondary" disabled="@Ocupado" @onclick="Limpiar">Cancelar edición</button>
+                }
+            </div>
+        </form>
+    </section>
+}
+
+<section class="card scroll">
+    <h2>Películas registradas</h2>
+    @if (peliculas.Length == 0)
+    {
+        <p>Sin películas registradas.</p>
+    }
+    else
+    {
+        <table>
+            <thead><tr>
+                <th scope="col">Película</th><th scope="col">Duración</th>
+                @if (Admin) { <th scope="col">Acciones</th> }
+            </tr></thead>
+            <tbody>
+                @foreach (var tipo in peliculas)
+                {
+                    <tr @key="tipo.Id">
+                        <th scope="row">@tipo.Titulo</th><td>@tipo.DuracionMinutos min</td>
+                        @if (Admin)
+                        {
+                            <td><div class="actions">
+                                <button type="button" class="secondary" disabled="@Ocupado" @onclick="() => Editar(tipo)">Editar película</button>
+                                <button type="button" class="danger" disabled="@Ocupado" @onclick="() => porEliminar = tipo">Eliminar película</button>
+                            </div></td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+    @if (porEliminar is { } eliminar)
+    {
+        <p>¿Eliminar la película <strong>@eliminar.Titulo</strong>?</p>
+        <div class="actions">
+            <button type="button" class="danger" disabled="@Ocupado" @onclick="() => Eliminar(eliminar.Id)">Confirmar eliminación</button>
+            <button type="button" class="secondary" disabled="@Ocupado" @onclick="() => porEliminar = null">Volver</button>
+        </div>
+    }
+</section>
+
+@code {
+    private Pelicula[] peliculas = [];
+    private Pelicula? porEliminar;
+    private int? editando;
+    private int? duracion;
+    private string titulo = "";
+
+    protected override Task OnInitializedAsync() => EjecutarAsync(Cargar);
+    private async Task Cargar() => peliculas = await Servicio.PeliculasAsync();
+
+    private void Editar(Pelicula tipo)
+    {
+        editando = tipo.Id;
+        titulo = tipo.Titulo;
+        duracion = tipo.DuracionMinutos;
+    }
+
+    private void Limpiar()
+    {
+        editando = null;
+        titulo = "";
+        duracion = null;
+    }
+
+    private Task Guardar() => EjecutarAsync(async () =>
+    {
+        if (duracion is not int minutos)
+            throw new InvalidOperationException("Indique la duración.");
+        await Servicio.GuardarPeliculaAsync(editando, new PeliculaInput(titulo, minutos));
+        Limpiar();
+        Confirmar("Película guardada.");
+        await Cargar();
+    });
+
+    private Task Eliminar(int id) => EjecutarAsync(async () =>
+    {
+        await Servicio.EliminarPeliculaAsync(id);
+        porEliminar = null;
+        if (editando == id)
+            Limpiar();
+        Confirmar("Película eliminada.");
+        await Cargar();
+    });
+}

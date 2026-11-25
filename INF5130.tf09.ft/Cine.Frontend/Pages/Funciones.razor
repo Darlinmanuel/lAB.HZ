@@ -1,0 +1,94 @@
+@page "/funciones"
+@inherits Tf09Page
+
+<PageTitle>Funciones · TF09</PageTitle>
+<h1>Funciones</h1>
+<p class="lead">Programe una película sin solapar horarios en la misma sala.</p>
+<Mensajes Error="@Error" Confirmacion="@Confirmacion" Ocupado="@Ocupado" />
+
+@if (Gestion)
+{
+    <section class="card">
+        <h2>Nueva función</h2>
+        <form @onsubmit="Crear" @onsubmit:preventDefault>
+            <div class="fields">
+                <label>Película
+                    <select required @bind="peliculaId">
+                        <option value="">Seleccione</option>
+                        @foreach (var pelicula in peliculas)
+                        {
+                            <option value="@pelicula.Id">@pelicula.Titulo · @pelicula.DuracionMinutos min</option>
+                        }
+                    </select>
+                </label>
+                <label>Sala
+                    <select required @bind="salaId">
+                        <option value="">Seleccione</option>
+                        @foreach (var sala in salas)
+                        {
+                            <option value="@sala.Id">@sala.Nombre</option>
+                        }
+                    </select>
+                </label>
+                <label>Inicio de la función <input type="datetime-local" required @bind="inicio" /></label>
+            </div>
+            <p class="lead">Indique la hora de Santo Domingo. El fin se calcula con la duración de la película.</p>
+            <div class="actions"><button disabled="@(Ocupado || peliculas.Length == 0 || salas.Length == 0)">Crear función</button></div>
+        </form>
+    </section>
+}
+
+<section class="card scroll">
+    <h2>Programación</h2>
+    @if (funciones.Length == 0)
+    {
+        <p>Sin funciones programadas.</p>
+    }
+    else
+    {
+        <table>
+            <thead><tr>
+                <th scope="col">Película</th><th scope="col">Sala</th><th scope="col">Inicio</th><th scope="col">Fin</th><th scope="col">Plano</th>
+            </tr></thead>
+            <tbody>
+                @foreach (var f in funciones)
+                {
+                    <tr @key="f.Id">
+                        <th scope="row">@f.PeliculaTitulo</th><td>@f.SalaNombre</td>
+                        <td>@CineFormato.Fecha(f.InicioUtc)</td><td>@CineFormato.Fecha(f.FinUtc)</td>
+                        <td><a href="@($"reservas?funcionId={f.Id}")">Ver asientos</a></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</section>
+
+@code {
+    private Pelicula[] peliculas = [];
+    private Sala[] salas = [];
+    private Funcion[] funciones = [];
+    private int? peliculaId, salaId;
+    private DateTime? inicio;
+
+    protected override Task OnInitializedAsync() => EjecutarAsync(async () =>
+    {
+        peliculas = await Servicio.PeliculasAsync();
+        salas = await Servicio.SalasAsync();
+        funciones = await Servicio.FuncionesAsync();
+    });
+
+    private Task Crear() => EjecutarAsync(async () =>
+    {
+        if (peliculaId is not int pelicula || salaId is not int sala || inicio is not DateTime hora)
+            throw new InvalidOperationException("Seleccione la película, la sala y el inicio de la función.");
+        var ahora = CineFormato.HoraLocal(DateTimeOffset.UtcNow);
+        if (hora <= ahora || hora > ahora.AddDays(90))
+            throw new InvalidOperationException("Programe la función en los próximos 90 días.");
+        var nueva = await Servicio.CrearFuncionAsync(new FuncionInput(pelicula, sala, CineFormato.AUniversal(hora)));
+        funciones = funciones.Append(nueva).OrderBy(f => f.InicioUtc).ThenBy(f => f.Id).ToArray();
+        peliculaId = salaId = null;
+        inicio = null;
+        Confirmar("Función programada.");
+    });
+}
